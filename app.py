@@ -1,29 +1,38 @@
+from turtle import title
 from sanic import Sanic
-from sanic.response import json, html, HTTPResponse
+from sanic.response import json, html
 from sanic.views import HTTPMethodView
 
-app = Sanic(__name__)
+from sqlalchemy import create_engine, Column, Integer, String, delete
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 
-BOOKS = {
-    "1":{
-        "book_id": 1,
-        "title": "title1",
-        "author": "author1",
-        "published_date": "10/11/2021"
-    },
-    "2":{
-        "book_id": 2,
-        "title": "title2",
-        "author": "author2",
-        "published_date": "10/11/2021"
-    },
-    "3":{
-        "book_id": 3,
-        "title": "title3",
-        "author": "author3",
-        "published_date": "10/11/2021"
-    },
-}
+engine = create_engine('sqlite:///BMS.db')
+Base = declarative_base()
+Base.metadata.bind = engine
+
+DBsession = sessionmaker(bind=engine)
+session = DBsession()
+
+class Books(Base):
+    __tablename__ = 'Books'
+
+    book_id = Column(Integer, primary_key=True)
+    title = Column(String(20))
+    author = Column(String(20))
+    published_date = Column(String(20))
+    
+    def to_dict(self):
+        return {
+        "book_id": self.book_id,
+        "title": self.title,
+        "author": self.author,
+        "published_date": self.published_date
+    }
+
+Base.metadata.create_all(engine)
+
+app = Sanic(__name__)
 
 class Home(HTTPMethodView):
     async def get(self, request):
@@ -45,19 +54,21 @@ class BookManagementSystem(HTTPMethodView):
     async def get(self, request,*args, **kwargs):
         book_id = kwargs.get("book_id")
         if book_id:
-            if BOOKS.get(str(book_id)):
-                return json(BOOKS.get(str(book_id)))
+            res = session.query(Books).filter(Books.book_id==book_id).first()
+            if res:
+                return json(res.to_dict())
             else:
                 return json({"status":400, "message":"book not found"})
         else:
-            return json(BOOKS)
+            return json([data.to_dict() for data in session.query(Books).all()])
 
     async def post(self, request,*args, **kwargs):
-        book_id = kwargs.get("book_id")
         book = request.json
         if book:
-            if book.get('book_id') not in BOOKS:
-                BOOKS[str(book.get('book_id'))] = book
+            res = session.query(Books).filter(Books.book_id==book.get('book_id')).first()
+            if not res:
+                session.add(Books(**book))
+                session.commit()
                 return json({"status":200, "message":"book added successfully"})
             else:
                 return json({"status":500, "message":"book already exist"})
@@ -65,15 +76,15 @@ class BookManagementSystem(HTTPMethodView):
             return json({"status":400, "message":"Invalid book"})
 
     async def put(self, request,*args, **kwargs):
-        book_id = kwargs.get("book_id")
+        book_id = int(kwargs.get("book_id",None))
         book = request.json
-        if book_id and book:
-            if BOOKS.get(str(book_id)):
-                BOOKS[str(book_id)] ={
-                    "title": book.get("title",BOOKS.get(str(book_id),{}).get("title")),
-                    "author": book.get("author",BOOKS.get(str(book_id),{}).get("author")),
-                    "published_date": book.get("published_date",BOOKS.get(str(book_id),{}).get("published_date")),
-                }
+        if book_id and book and book.get("book_id")==book_id:
+            res = session.query(Books).filter(Books.book_id==book_id).first()
+            if res:
+                res.title = book.get("title",res.title)
+                res.author = book.get("author",res.author)
+                res.published_date = book.get("published_date",res.published_date)
+                session.commit()
                 return json({"status":200, "message":"book updated successfully!"})
             else:
                 return json({"status":400, "message":"book not found!"})
@@ -82,8 +93,10 @@ class BookManagementSystem(HTTPMethodView):
 
     async def delete(self, request,*args, **kwargs):
         book_id = kwargs.get("book_id")
-        if book_id and BOOKS.get(str(book_id)):
-                del BOOKS[str(book_id)]
+        res = session.query(Books).filter(Books.book_id==book_id).first()
+        if res:
+                session.delete(res)
+                session.commit()
                 return json({"status":200, "message":"book deleted successfully!"})
         else:
             return json({"status":400, "message":"book not found!"})
