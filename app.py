@@ -1,4 +1,3 @@
-from turtle import title
 from sanic import Sanic
 from sanic.response import json, html
 from sanic.views import HTTPMethodView
